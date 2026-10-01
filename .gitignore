@@ -6,3 +6,8 @@ __pycache__/
 .DS_Store
 weight_data.db
 venv/
+service-account.json
+*.json
+weight_graph.png
+weight_data.csv
+bot.log
