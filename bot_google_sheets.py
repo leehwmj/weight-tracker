@@ -29,6 +29,9 @@ SHEET_ID = "1bQM58722NaTO3nLoXZcBk7Jpx_LDFz3alJoeWfqa15I"
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 CREDENTIALS_FILE = 'service-account.json'
 
+# 사용자 정보
+USER_HEIGHT = 168  # cm
+
 # Google Sheets 클라이언트 초기화
 def init_sheet():
     credentials = Credentials.from_service_account_file(
@@ -89,6 +92,11 @@ def get_all_data():
         print(f"❌ Google Sheets 읽기 오류: {e}")
         return []
 
+# BMI 계산
+def calculate_bmi(weight_kg):
+    height_m = USER_HEIGHT / 100
+    return weight_kg / (height_m ** 2)
+
 # 그래프 생성
 def create_graph():
     data = get_all_data()
@@ -125,13 +133,51 @@ def create_graph():
 
     return graph_file
 
+# BMI 그래프 생성
+def create_bmi_graph():
+    data = get_all_data()
+
+    if not data:
+        return None
+
+    dates = [d['date'] for d in data]
+    weights = [d['weight'] for d in data]
+    bmis = [calculate_bmi(w) for w in weights]
+
+    # Y축 범위 동적 설정
+    min_bmi = min(bmis)
+    max_bmi = max(bmis)
+    margin = max(0.5, (max_bmi - min_bmi) * 0.1)
+    y_min = min_bmi - margin
+    y_max = max_bmi + margin
+
+    # 그래프 생성
+    plt.figure(figsize=(10, 6))
+    plt.plot(dates, bmis, 'o-', linewidth=2, markersize=8, color='#4ECDC4')
+    plt.fill_between(range(len(dates)), bmis, alpha=0.3, color='#4ECDC4')
+
+    plt.title('BMI 변화', fontsize=16, fontweight='bold')
+    plt.xlabel('날짜', fontsize=12)
+    plt.ylabel('BMI', fontsize=12)
+    plt.ylim(y_min, y_max)
+    plt.grid(True, alpha=0.3)
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+
+    graph_file = 'bmi_graph.png'
+    plt.savefig(graph_file, dpi=100, bbox_inches='tight')
+    plt.close()
+
+    return graph_file
+
 # Telegram 명령어 핸들러
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏋️ 체중 기록 봇에 오신 걸 환영합니다!\n\n"
         "📝 사용법 (영어 또는 한글 모두 가능):\n"
         "/weight 70.5 (또는 /무게 70.5) - 체중 입력\n"
-        "/graph (또는 /그래프) - 그래프 보기\n"
+        "/graph (또는 /그래프) - 체중 그래프\n"
+        "/bmi (또는 /비엠아이) - BMI 그래프\n"
         "/stats (또는 /통계) - 통계\n"
         "/help (또는 /도움말) - 도움말\n\n"
         "☁️ 데이터는 Google Sheets에 저장됩니다!"
@@ -222,6 +268,7 @@ async def handle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     weights = [d['weight'] for d in data]
+    bmis = [calculate_bmi(w) for w in weights]
 
     stats_text = (
         f"📊 체중 통계\n"
@@ -231,10 +278,29 @@ async def handle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"최고: {max(weights):.1f}kg\n"
         f"최저: {min(weights):.1f}kg\n"
         f"변화: {weights[-1] - weights[0]:+.1f}kg\n"
-        f"기록: {len(weights)}일"
+        f"기록: {len(weights)}일\n\n"
+        f"📈 BMI 통계 (키: {USER_HEIGHT}cm)\n"
+        f"━━━━━━━━━━━━\n"
+        f"현재: {bmis[-1]:.1f}\n"
+        f"평균: {sum(bmis)/len(bmis):.1f}\n"
+        f"최고: {max(bmis):.1f}\n"
+        f"최저: {min(bmis):.1f}\n"
+        f"변화: {bmis[-1] - bmis[0]:+.1f}"
     )
 
     await update.message.reply_text(stats_text)
+
+async def handle_bmi_graph(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📊 BMI 그래프를 생성 중입니다...")
+
+    graph_file = create_bmi_graph()
+
+    if not graph_file:
+        await update.message.reply_text("❌ 아직 기록된 데이터가 없습니다.")
+        return
+
+    with open(graph_file, 'rb') as f:
+        await update.message.reply_photo(photo=f, caption="📈 BMI 변화")
 
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -243,9 +309,11 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/weight 70.5 (또는 /무게 70.5)\n"
         "/weight 2024-01-15 70.5\n"
         "/weight 01-15 70.5\n\n"
-        "📈 그래프 보기:\n"
+        "📈 체중 그래프:\n"
         "/graph (또는 /그래프)\n\n"
-        "📊 통계 조회:\n"
+        "📊 BMI 그래프:\n"
+        "/bmi (또는 /비엠아이)\n\n"
+        "📋 통계 조회:\n"
         "/stats (또는 /통계)\n\n"
         "ℹ️ 도움말:\n"
         "/help (또는 /도움말)\n\n"
@@ -270,6 +338,9 @@ async def handle_korean_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == '/그래프':
         await handle_graph(update, context)
 
+    elif text == '/bmi' or text == '/비엠아이':
+        await handle_bmi_graph(update, context)
+
     elif text == '/통계':
         await handle_stats(update, context)
 
@@ -290,6 +361,7 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weight", handle_weight))
     application.add_handler(CommandHandler("graph", handle_graph))
+    application.add_handler(CommandHandler("bmi", handle_bmi_graph))
     application.add_handler(CommandHandler("stats", handle_stats))
     application.add_handler(CommandHandler("help", handle_help))
 
